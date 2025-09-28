@@ -1,8 +1,10 @@
 {
     "name": "survos/deployment-bundle",
+    "description": "Tools for deploying Survos projects to dokku",
     "keywords": [
         "symfony-ux",
-        "symfony6"
+        "symfony",
+        "dev"
     ],
     "license": "MIT",
     "type": "symfony-bundle",
@@ -11,7 +13,7 @@
         "symfony/config": "^7.3",
         "symfony/dependency-injection": "^7.3",
         "symfony/http-kernel": "^7.3",
-        "twig/twig": "^3.16",
+        "twig/twig": "^3.4",
         "symfony/form": "^7.3",
         "symfony/console": "^7.3"
     },
@@ -21,9 +23,7 @@
         "symfony/framework-bundle": "^7.3",
         "symfony/phpunit-bridge": "^7.3",
         "symfony/twig-bundle": "^7.3",
-        "symfony/var-dumper": "^7.3",
-        "bizkit/versioning-bundle": "^1.2",
-        "zenstruck/console-extra": "^1.4"
+        "symfony/var-dumper": "^7.3"
     },
     "autoload": {
         "psr-4": {

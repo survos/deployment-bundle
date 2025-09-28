@@ -10,8 +10,9 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpKernel\KernelInterface;
+use Symfony\Component\Process\Process;
 use Twig\Environment;
-use Zenstruck\Console\ConfigureWithAttributes;
+
 //use Zenstruck\Console\RunsCommands;
 //use Zenstruck\Console\RunsProcesses;
 use function Symfony\Component\String\u;
@@ -26,16 +27,32 @@ final class DokkuConfigCommand extends Command
 
     public function __construct(
         #[Autowire(param: 'kernel.project_dir')] private string $projectDir,
-        ?string $name = null
-    ) {
+        ?string                                                 $name = null
+    )
+    {
         parent::__construct($name);
     }
 
     public function __invoke(
-        SymfonyStyle $io,
-        #[Argument(description: 'the repo prefix, e.g. barcode-demo')] ?string $name=null,
-        #[Option('force', "actually run the dokku commands")] bool $force=false
-    ): void {
+        SymfonyStyle                                                           $io,
+        #[Argument(description: 'the repo prefix, e.g. barcode-demo')] ?string $name = null,
+        #[Option("actually run the dokku commands")] ?bool                     $force = null
+    ): void
+    {
+
+        $app = $name;
+        $cmd = 'export NVM_DIR="$HOME/.nvm"; '
+            . '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; '
+            . 'dokku config ' . escapeshellarg($app);
+
+        $process = new Process(['bash', '-lc', $cmd]);
+        $process->run();
+
+        if (!$process->isSuccessful()) {
+            dd($process->getErrorOutput());
+        }
+
+        $io->writeln($process->getOutput());
 
         $this->force = $force;
         $this->io = $io;
@@ -61,6 +78,7 @@ END
         $app->name = $name;
         $app->description = $composerData->description;
         $app->repository = "https://github.com/" . $composerData->name;
+
         file_put_contents($this->projectDir . '/app.json', json_encode($app, JSON_PRETTY_PRINT + JSON_UNESCAPED_SLASHES + JSON_UNESCAPED_UNICODE));
 
         $conf = file_get_contents(__DIR__ . './../../templates/nginx.conf.twig');
@@ -90,10 +108,24 @@ END
 
     private function runCmd(string $cmd): void
     {
+
         $this->io->writeln($cmd);
+        $io = $this->io;
         if ($this->force) {
             try {
-                $this->runProcess($cmd);
+                $process = new Process(['ls', '-la', '/tmp']);
+// or for a shell command:
+                $process = Process::fromShellCommandline('tar -xzf archive.tar.gz -C /destination');
+
+                $process->run();
+
+                if (!$process->isSuccessful()) {
+                    $io->error('Command failed: ' . $process->getErrorOutput());
+                } else {
+                    $output = $process->getOutput();
+                    $io->text($output);
+                }
+
             } catch (\Exception $exception) {
                 $this->io->error($cmd);
             }
