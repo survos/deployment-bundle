@@ -15,7 +15,8 @@
         "symfony/http-kernel": "^7.3",
         "twig/twig": "^3.4",
         "symfony/form": "^7.3",
-        "symfony/console": "^7.3"
+        "symfony/console": "^7.3",
+        "symfony/process": "^7.3"
     },
     "require-dev": {
         "phpstan/phpstan": "^2.0",

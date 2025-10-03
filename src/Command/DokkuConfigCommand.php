@@ -9,20 +9,13 @@ use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
-use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\Process\Process;
 use Twig\Environment;
 
-//use Zenstruck\Console\RunsCommands;
-//use Zenstruck\Console\RunsProcesses;
 use function Symfony\Component\String\u;
-
 #[AsCommand('dokku:config', 'Configure a project for deployment on dukku')]
 final class DokkuConfigCommand extends Command
 {
-    //use RunsCommands;
-    //use RunsProcesses;
-    private bool $force = false;
     private SymfonyStyle $io;
 
     public function __construct(
@@ -46,13 +39,23 @@ final class DokkuConfigCommand extends Command
             . 'dokku config ' . escapeshellarg($app);
 
         $process = new Process(['bash', '-lc', $cmd]);
-        $process->run();
+
+        $process->run(function (string $type, string $buffer) {
+            if ($type === Process::ERR) {
+                // stream errors to STDERR
+                fwrite(STDERR, $buffer);
+            } else {
+                // stream normal output
+                echo $buffer;
+            }
+        });
 
         if (!$process->isSuccessful()) {
             dd($process->getErrorOutput());
         }
 
         $io->writeln($process->getOutput());
+        dd();
 
         $this->force = $force;
         $this->io = $io;
@@ -113,6 +116,7 @@ END
         $io = $this->io;
         if ($this->force) {
             try {
+                assert(false, "@todo: run command $cmd");
                 $process = new Process(['ls', '-la', '/tmp']);
 // or for a shell command:
                 $process = Process::fromShellCommandline('tar -xzf archive.tar.gz -C /destination');
