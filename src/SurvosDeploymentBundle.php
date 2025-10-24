@@ -4,7 +4,7 @@
 
 namespace Survos\DeploymentBundle;
 
-use Survos\DeploymentBundle\Command\DokkuConfigCommand;
+use Survos\DeploymentBundle\Command\DokkuCommand;
 use Survos\DeploymentBundle\Twig\TwigExtension;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -24,7 +24,7 @@ class SurvosDeploymentBundle extends AbstractBundle
 //            ->setArgument('$config', $config)
 //            ->addTag('twig.extension');
 
-        $builder->autowire(DokkuConfigCommand::class)
+        $builder->autowire(DokkuCommand::class)
             ->setAutoconfigured(true)
             ->addTag('console.command');
 
