@@ -357,7 +357,7 @@ END;
         ];
 
         $this->io->section('Creating app.json');
-        $this->io->text(json_encode($app, JSON_PRETTY_PRINT));
+        $this->io->text(json_encode($app, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 
         if (!$this->dryRun) {
             $path = $this->projectDir . '/app.json';
