@@ -29,11 +29,12 @@ final class DokkuCommand extends Command
 
     public function __invoke(
         SymfonyStyle $io,
-        #[Argument(description: 'Action: bootstrap|logs|config|storage|deploy|destroy')] ?string $action = 'bootstrap',
-        #[Argument(description: 'Action parameter (e.g. mount path for storage, KEY=value for config)')] ?string $param = null,
-        #[Option(description: "App name (auto-detected from git remote or directory)")] ?string $app = null,
-        #[Option(description: "Show what would happen without executing")] bool $dry = false,
-        #[Option(description: "Dokku server host")] string $host = 'ssh.survos.com'
+        #[Argument('Action: bootstrap|logs|config|storage|deploy|destroy')]
+        ?string $action = 'bootstrap',
+        #[Argument('Action parameter (e.g. mount path for storage, KEY=value for config)')] ?string $param = null,
+        #[Option("App name (auto-detected from git remote or directory)")] ?string $app = null,
+        #[Option("Show what would happen without executing")] bool $dry = true,
+        #[Option("Dokku server host")] string $host = 'ssh.survos.com'
     ): int {
         $this->io = $io;
         $this->dryRun = $dry;
@@ -44,7 +45,7 @@ final class DokkuCommand extends Command
             $app = $this->getAppNameFromGitRemote();
         }
         $this->appName = $app ?? basename($this->projectDir);
-
+        dd($this->appName);
         if ($this->dryRun) {
             $io->note('DRY RUN MODE - No commands will be executed');
         }
