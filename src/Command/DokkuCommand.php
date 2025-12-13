@@ -45,7 +45,6 @@ final class DokkuCommand extends Command
             $app = $this->getAppNameFromGitRemote();
         }
         $this->appName = $app ?? basename($this->projectDir);
-        dd($this->appName);
         if ($this->dryRun) {
             $io->note('DRY RUN MODE - No commands will be executed');
         }
@@ -389,6 +388,8 @@ END;
             escapeshellarg($this->dokkuHost),
             $dokkuArgs
         );
+        // dokku config:set lingua SYMFONY_DECRYPTION_SECRET=$(grep SYMFONY_DECRYPTION_SECRET config/secrets/prod/prod.decrypt.private.php | cut -d= -f2)
+        // bin/console secrets:set APP_SECRET --env=prod --random
 
         $this->runCmd($cmd, $allowFailure);
     }
