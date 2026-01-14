@@ -187,6 +187,9 @@ final class DokkuCommand extends Command
             return Command::FAILURE;
         }
 
+        # dokku storage:mount  /mnt/volume-1/shared:/app/shared
+        # dokku storage:ensure-directory
+
         $this->io->section("Adding storage mount to {$this->appName}");
         $this->runDokkuCmd("storage:mount {$this->appName} " . escapeshellarg($param));
 
