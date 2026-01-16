@@ -183,7 +183,7 @@ final class DokkuCommand extends Command
 
         // Add mount
         if (!str_contains($param, ':')) {
-            $this->io->error("Invalid mount format: $param (expected /host/path:/container/path)");
+            $this->io->error("Invalid mount format: $param (expected /host/path:/container/path, e.g.  /mnt/volume-1/shared:/app/shared)");
             return Command::FAILURE;
         }
 
