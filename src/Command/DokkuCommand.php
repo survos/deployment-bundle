@@ -10,13 +10,11 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Process\Process;
 
-use function Symfony\Component\String\u;
-
 #[AsCommand('dokku', 'Manage Dokku deployments')]
 final class DokkuCommand extends Command
 {
     private SymfonyStyle $io;
-    private bool $dryRun = false;
+    private bool $executeChanges = false;
     private string $dokkuHost = 'ssh.survos.com';
     private ?string $appName = null;
 
@@ -33,11 +31,11 @@ final class DokkuCommand extends Command
         ?string $action = 'bootstrap',
         #[Argument('Action parameter (e.g. mount path for storage, KEY=value for config)')] ?string $param = null,
         #[Option("App name (auto-detected from git remote or directory)")] ?string $app = null,
-        #[Option("Show what would happen without executing")] bool $dry = true,
+        #[Option("Execute mutating commands and file writes")] bool $force = false,
         #[Option("Dokku server host")] string $host = 'ssh.survos.com'
     ): int {
         $this->io = $io;
-        $this->dryRun = $dry;
+        $this->executeChanges = $force;
         $this->dokkuHost = $host;
 
         // Try to determine app name from git remote first, then fall back to directory name
@@ -45,8 +43,8 @@ final class DokkuCommand extends Command
             $app = $this->getAppNameFromGitRemote();
         }
         $this->appName = $app ?? basename($this->projectDir);
-        if ($this->dryRun) {
-            $io->note('DRY RUN MODE - No commands will be executed');
+        if (!$this->executeChanges) {
+            $io->note('PREVIEW MODE - Read-only commands run, mutating commands are listed. Use --force to execute changes.');
         }
 
         return match($action) {
@@ -81,7 +79,7 @@ final class DokkuCommand extends Command
             'Options:',
             '  --app=NAME              Override app name',
             '  --host=HOST             Dokku server (default: ssh.survos.com)',
-            '  --dry                   Show commands without executing',
+            '  --force                 Execute mutating commands and file writes',
             '',
             'Examples:',
             '  bin/console dokku bootstrap              # Initial setup',
@@ -123,8 +121,8 @@ final class DokkuCommand extends Command
         $this->io->section("Initial config for {$this->appName}");
         $this->runDokkuCmd("config:show {$this->appName}");
 
-        if ($this->dryRun) {
-            $this->io->success('Dry run complete. Run without --dry to execute.');
+        if (!$this->executeChanges) {
+            $this->io->success('Preview complete. Re-run with --force to execute mutating steps.');
         } else {
             $this->io->success('Bootstrap complete!');
             $this->io->text([
@@ -142,7 +140,7 @@ final class DokkuCommand extends Command
     private function showLogs(): int
     {
         $this->io->title("Logs for {$this->appName}");
-        $this->runDokkuCmd("logs {$this->appName} --num 100");
+        $this->runDokkuCmd("logs {$this->appName} --num 100", mutates: false);
 
         $this->io->newLine();
         $this->io->text('To follow logs in real-time:');
@@ -153,10 +151,13 @@ final class DokkuCommand extends Command
 
     private function handleConfig(?string $param): int
     {
+        // Keep local deployment metadata in sync when working with config
+        $this->createAppJson();
+
         if (!$param) {
             // Show all config
             $this->io->section("Config for {$this->appName}");
-            $this->runDokkuCmd("config:show {$this->appName}");
+            $this->runDokkuCmd("config:show {$this->appName}", mutates: false);
             return Command::SUCCESS;
         }
 
@@ -167,7 +168,7 @@ final class DokkuCommand extends Command
         }
 
         $this->io->section("Setting config for {$this->appName}");
-        $this->runDokkuCmd("config:set {$this->appName} " . escapeshellarg($param));
+        $this->runDokkuCmd("config:set {$this->appName} " . escapeshellarg($param), mutates: true);
 
         return Command::SUCCESS;
     }
@@ -177,7 +178,7 @@ final class DokkuCommand extends Command
         if (!$param) {
             // List storage
             $this->io->section("Storage mounts for {$this->appName}");
-            $this->runDokkuCmd("storage:list {$this->appName}");
+            $this->runDokkuCmd("storage:list {$this->appName}", mutates: false);
             return Command::SUCCESS;
         }
 
@@ -191,10 +192,14 @@ final class DokkuCommand extends Command
         # dokku storage:ensure-directory
 
         $this->io->section("Adding storage mount to {$this->appName}");
-        $this->runDokkuCmd("storage:mount {$this->appName} " . escapeshellarg($param));
+        $this->runDokkuCmd("storage:mount {$this->appName} " . escapeshellarg($param), mutates: true);
 
-        $this->io->success("Storage mounted. Restart to apply:");
-        $this->io->text("  bin/console dokku restart");
+        if ($this->executeChanges) {
+            $this->io->success("Storage mounted. Restart to apply:");
+            $this->io->text("  bin/console dokku restart");
+        } else {
+            $this->io->text('Storage mount planned. Re-run with --force to apply.');
+        }
 
         return Command::SUCCESS;
     }
@@ -202,13 +207,15 @@ final class DokkuCommand extends Command
     private function deploy(): int
     {
         $this->io->title("Deploying {$this->appName}");
+        $cmd = 'git push dokku main';
 
-        if ($this->dryRun) {
-            $this->io->text('Would run: git push dokku main');
+        if (!$this->executeChanges) {
+            $this->io->text("[change] $ $cmd");
+            $this->io->text('  (planned only; use --force to execute)');
             return Command::SUCCESS;
         }
 
-        $process = Process::fromShellCommandline('git push dokku main');
+        $process = Process::fromShellCommandline($cmd);
         $process->setTimeout(600); // 10 minutes for deploy
         $process->setTty(true);
 
@@ -236,13 +243,18 @@ final class DokkuCommand extends Command
     {
         $this->io->warning("About to destroy app: {$this->appName}");
 
+        if (!$this->executeChanges) {
+            $this->runDokkuCmd("apps:destroy {$this->appName} --force", mutates: true);
+            return Command::SUCCESS;
+        }
+
         if (!$this->io->confirm('Are you sure? This cannot be undone.', false)) {
             $this->io->text('Cancelled.');
             return Command::SUCCESS;
         }
 
         $this->io->section("Destroying {$this->appName}");
-        $this->runDokkuCmd("apps:destroy {$this->appName} --force");
+        $this->runDokkuCmd("apps:destroy {$this->appName} --force", mutates: true);
 
         $this->io->success('App destroyed.');
         $this->io->text('To remove git remote: git remote remove dokku');
@@ -253,14 +265,14 @@ final class DokkuCommand extends Command
     private function restart(): int
     {
         $this->io->section("Restarting {$this->appName}");
-        $this->runDokkuCmd("ps:restart {$this->appName}");
+        $this->runDokkuCmd("ps:restart {$this->appName}", mutates: true);
         return Command::SUCCESS;
     }
 
     private function showStatus(): int
     {
         $this->io->section("Status for {$this->appName}");
-        $this->runDokkuCmd("ps:report {$this->appName}");
+        $this->runDokkuCmd("ps:report {$this->appName}", mutates: false);
         return Command::SUCCESS;
     }
 
@@ -289,13 +301,7 @@ final class DokkuCommand extends Command
         $path = $this->projectDir . '/Procfile';
         $contents = 'web: vendor/bin/heroku-php-nginx -C nginx.conf -F fpm_custom.conf public/';
 
-        $this->io->section('Creating Procfile');
-        $this->io->text($contents);
-
-        if (!$this->dryRun) {
-            file_put_contents($path, $contents);
-            $this->io->text("✓ Written to: $path");
-        }
+        $this->syncFile('Procfile', $path, $contents);
     }
 
     private function createFpmConfig(): void
@@ -307,66 +313,77 @@ php_value[post_max_size] = 100M
 php_value[upload_max_filesize] = 100M
 END;
 
-        $this->io->section('Creating FPM config');
-        $this->io->text($contents);
-
-        if (!$this->dryRun) {
-            file_put_contents($path, $contents);
-            $this->io->text("✓ Written to: $path");
-        }
+        $this->syncFile('FPM config', $path, $contents);
     }
 
     private function createNginxConfig(): void
     {
         $path = $this->projectDir . '/nginx.conf';
         $templatePath = __DIR__ . '/../../templates/nginx.conf.twig';
-        assert(file_exists($templatePath), $templatePath . ' does not exist');
 
         $this->io->section('Creating nginx.conf');
 
-        if (!$this->dryRun) {
-            if (file_exists($templatePath)) {
-                $contents = file_get_contents($templatePath);
-                file_put_contents($path, $contents);
-                $this->io->text("✓ Written to: $path");
-            } else {
-                $this->io->warning("Template not found: $templatePath");
-            }
-        } else {
-            $this->io->text("Would copy from: $templatePath");
+        if (!file_exists($templatePath)) {
+            $this->io->warning("Template not found: $templatePath");
+            return;
         }
+
+        $contents = file_get_contents($templatePath);
+        $this->syncFile('nginx.conf', $path, $contents);
     }
 
     private function createAppJson(): void
     {
         $composerPath = $this->projectDir . '/composer.json';
+        $templatePath = __DIR__ . '/../../templates/app.json';
 
-        if (!file_exists($composerPath)) {
-            $this->io->warning('composer.json not found, skipping app.json creation');
-            return;
+        $composerData = null;
+        if (file_exists($composerPath)) {
+            $decoded = json_decode((string) file_get_contents($composerPath));
+            if ($decoded instanceof \stdClass) {
+                $composerData = $decoded;
+            } else {
+                $this->io->warning('composer.json is invalid JSON; creating minimal app.json');
+            }
+        } else {
+            $this->io->warning('composer.json not found; creating minimal app.json');
         }
 
-        $composerData = json_decode(file_get_contents($composerPath));
-
-        if (!isset($composerData->description)) {
-            $this->io->warning('composer.json missing description. Run composer validate and composer normalize first!');
-            return;
+        $description = trim((string) ($composerData->description ?? ''));
+        if ($description === '') {
+            $description = "Dokku app for {$this->appName}";
+            $this->io->warning('composer.json missing description; using fallback description in app.json');
         }
 
-        $app = [
-            'name' => $this->appName,
-            'description' => $composerData->description,
-            'repository' => "https://github.com/" . ($composerData->name ?? ''),
-        ];
+        $repository = "https://github.com/" . ($composerData->name ?? '');
 
         $this->io->section('Creating app.json');
-        $this->io->text(json_encode($app, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-
-        if (!$this->dryRun) {
-            $path = $this->projectDir . '/app.json';
-            file_put_contents($path, json_encode($app, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-            $this->io->text("✓ Written to: $path");
+        if (!file_exists($templatePath)) {
+            $this->io->warning("app.json template not found: $templatePath");
+            return;
         }
+
+        $template = (string) file_get_contents($templatePath);
+        $contents = str_replace(
+            ['%NAME%', '%DESCRIPTION%', '%REPOSITORY%'],
+            [
+                $this->jsonStringValue((string) $this->appName),
+                $this->jsonStringValue($description),
+                $this->jsonStringValue($repository),
+            ],
+            $template
+        );
+
+        $this->io->text($contents);
+
+        $path = $this->projectDir . '/app.json';
+        $this->syncFile('app.json', $path, $contents);
+    }
+
+    private function jsonStringValue(string $value): string
+    {
+        $encoded = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return substr((string) $encoded, 1, -1);
     }
 
     private function addGitRemote(): void
@@ -375,16 +392,36 @@ END;
         $cmd = "git remote add dokku $remoteUrl";
 
         $this->io->section('Adding git remote');
-        $this->runCmd($cmd, allowFailure: true); // Allow failure if remote already exists
+
+        $currentRemote = $this->getGitRemoteUrl('dokku');
+        if ($currentRemote === $remoteUrl) {
+            $this->io->text("  dokku remote already exists: $currentRemote");
+            return;
+        }
+
+        if ($currentRemote !== null) {
+            $this->io->warning("dokku remote exists with a different URL: $currentRemote");
+            $this->io->text('  Skipping automatic overwrite. Update it manually if needed.');
+            return;
+        }
+
+        $this->runCmd($cmd, allowFailure: false, mutates: true);
     }
 
     private function createDokkuApp(): void
     {
         $this->io->section('Creating Dokku app');
-        $this->runDokkuCmd("apps:create {$this->appName}", allowFailure: true);
+
+        $exists = $this->dokkuAppExists();
+        if ($exists === true) {
+            $this->io->text("  App {$this->appName} already exists");
+            return;
+        }
+
+        $this->runDokkuCmd("apps:create {$this->appName}", allowFailure: true, mutates: true);
     }
 
-    private function runDokkuCmd(string $dokkuArgs, bool $allowFailure=false): void
+    private function runDokkuCmd(string $dokkuArgs, bool $allowFailure = false, bool $mutates = false): void
     {
         $cmd = sprintf(
             'ssh dokku@%s %s',
@@ -394,14 +431,16 @@ END;
         // dokku config:set  SYMFONY_DECRYPTION_SECRET=$(grep SYMFONY_DECRYPTION_SECRET config/secrets/prod/prod.decrypt.private.php | cut -d= -f2)
         // bin/console secrets:set APP_SECRET --env=prod --random
 
-        $this->runCmd($cmd, $allowFailure);
+        $this->runCmd($cmd, $allowFailure, $mutates);
     }
 
-    private function runCmd(string $cmd, bool $allowFailure = false): void
+    private function runCmd(string $cmd, bool $allowFailure = false, bool $mutates = false): void
     {
-        $this->io->text("$ $cmd");
+        $mode = $mutates ? 'change' : 'read';
+        $this->io->text("[$mode] $ $cmd");
 
-        if ($this->dryRun) {
+        if ($mutates && !$this->executeChanges) {
+            $this->io->text('  (planned only; use --force to execute)');
             return;
         }
 
@@ -433,6 +472,67 @@ END;
             } else {
                 $this->io->error($exception->getMessage());
             }
+        }
+    }
+
+    private function syncFile(string $label, string $path, string $contents): void
+    {
+        $this->io->section("Syncing $label");
+
+        if (file_exists($path)) {
+            $existing = file_get_contents($path);
+            if ($existing === $contents) {
+                $this->io->text("  already exists and matches: $path");
+                return;
+            }
+
+            $this->io->text("[change] update file: $path");
+            if (!$this->executeChanges) {
+                $this->io->text('  (planned only; use --force to overwrite)');
+                return;
+            }
+
+            file_put_contents($path, $contents);
+            $this->io->text("  ✓ Updated: $path");
+            return;
+        }
+
+        $this->io->text("[change] create file: $path");
+        if (!$this->executeChanges) {
+            $this->io->text('  (planned only; use --force to create)');
+            return;
+        }
+
+        file_put_contents($path, $contents);
+        $this->io->text("  ✓ Created: $path");
+    }
+
+    private function getGitRemoteUrl(string $remoteName): ?string
+    {
+        try {
+            $process = Process::fromShellCommandline('git remote get-url ' . escapeshellarg($remoteName));
+            $process->run();
+
+            if ($process->isSuccessful()) {
+                return trim($process->getOutput());
+            }
+        } catch (\Exception $e) {
+            // ignore and return null
+        }
+
+        return null;
+    }
+
+    private function dokkuAppExists(): ?bool
+    {
+        try {
+            $process = Process::fromShellCommandline(
+                sprintf('ssh dokku@%s apps:exists %s', escapeshellarg($this->dokkuHost), escapeshellarg((string) $this->appName))
+            );
+            $process->run();
+            return $process->isSuccessful();
+        } catch (\Exception $e) {
+            return null;
         }
     }
 }

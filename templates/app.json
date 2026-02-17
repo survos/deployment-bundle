@@ -5,7 +5,7 @@
         "php",
         "symfony"
     ],
-    "repository": "%REPOSITORY",
+    "repository": "%REPOSITORY%",
     "scripts": {
         "dokku": {
             "predeploy": "bin/console importmap:install && bin/console asset-map:compile && bin/console  secrets:decrypt-to-local --force && bin/console doctrine:migrations:migrate -n --allow-no-migration",
