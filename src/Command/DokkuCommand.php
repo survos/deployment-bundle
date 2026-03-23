@@ -27,7 +27,7 @@ final class DokkuCommand extends Command
 
     public function __invoke(
         SymfonyStyle $io,
-        #[Argument('Action: bootstrap|logs|config|storage|deploy|destroy')]
+        #[Argument('Action: bootstrap|init|scaffold|logs|config|storage|deploy|destroy')]
         ?string $action = 'bootstrap',
         #[Argument('Action parameter (e.g. mount path for storage, KEY=value for config)')] ?string $param = null,
         #[Option("App name (auto-detected from git remote or directory)")] ?string $app = null,
@@ -48,7 +48,9 @@ final class DokkuCommand extends Command
         }
 
         return match($action) {
-            'bootstrap', 'init', 'setup' => $this->bootstrap(),
+            'bootstrap', 'setup' => $this->bootstrap(),
+            'init', 'link' => $this->initAppAndRemote(),
+            'scaffold', 'files', 'prepare' => $this->scaffoldDeploymentFiles(),
             'logs', 'log' => $this->showLogs(),
             'config', 'env' => $this->handleConfig($param),
             'storage', 'mount' => $this->handleStorage($param),
@@ -67,7 +69,9 @@ final class DokkuCommand extends Command
             'Usage: bin/console dokku <action> [param] [options]',
             '',
             'Actions:',
-            '  <info>bootstrap</info>              Initialize app (creates Procfile, nginx.conf, git remote, app)',
+            '  <info>bootstrap</info>              Full setup (init + scaffold)',
+            '  <info>init</info>                   Step 1: create Dokku app + ensure git remote',
+            '  <info>scaffold</info>               Step 2: create/update Procfile/nginx/app.json',
             '  <info>logs</info>                   View application logs',
             '  <info>config</info> [KEY=value]     View config or set env var',
             '  <info>storage</info> [mount]        List storage or add mount (/host:/container)',
@@ -82,7 +86,9 @@ final class DokkuCommand extends Command
             '  --force                 Execute mutating commands and file writes',
             '',
             'Examples:',
-            '  bin/console dokku bootstrap              # Initial setup',
+            '  bin/console dokku init                   # Step 1: app + remote',
+            '  bin/console dokku scaffold               # Step 2: files/templates',
+            '  bin/console dokku bootstrap              # Step 1 + Step 2',
             '  bin/console dokku logs                    # View logs',
             '  bin/console dokku config                  # Show all env vars',
             '  bin/console dokku config OPENAI_KEY=sk-  # Set env var',
@@ -99,26 +105,17 @@ final class DokkuCommand extends Command
     {
         $this->io->title("Bootstrapping Dokku app: {$this->appName}");
 
-        // Step 1: Create/verify Procfile
-        $this->createProcfile();
-
-        // Step 2: Create/verify fpm config
-        $this->createFpmConfig();
-
-        // Step 3: Create/verify nginx config
-        $this->createNginxConfig();
-
-        // Step 4: Create/verify app.json
-        $this->createAppJson();
-
-        // Step 5: Add git remote
+        $this->io->section('Step 1/2: create app + git remote');
+        $this->createDokkuApp();
         $this->addGitRemote();
 
-        // Step 6: Create app on Dokku
-        $this->createDokkuApp();
+        $this->io->section('Step 2/2: scaffold deployment files');
+        $this->createProcfile();
+        $this->createFpmConfig();
+        $this->createNginxConfig();
+        $this->createAppJson();
 
-        // Step 7: Show current config
-        $this->io->section("Initial config for {$this->appName}");
+        $this->io->section("Current config for {$this->appName}");
         $this->runDokkuCmd("config:show {$this->appName}");
 
         if (!$this->executeChanges) {
@@ -127,11 +124,68 @@ final class DokkuCommand extends Command
             $this->io->success('Bootstrap complete!');
             $this->io->text([
                 '',
-                'Next steps:',
-                '  bin/console dokku config OPENAI_KEY=sk-...  # Set env vars',
-                '  bin/console dokku storage /var/data:/app/var # Add storage',
-                '  bin/console dokku deploy                     # Deploy!',
+                'Recommended next steps:',
+                '  bin/console dokku config OPENAI_KEY=sk-...   # Set env vars',
+                '  bin/console dokku storage /var/data:/app/var  # Add storage',
+                '  bin/console dokku deploy                       # Push to dokku',
             ]);
+        }
+
+        return Command::SUCCESS;
+    }
+
+    private function initAppAndRemote(): int
+    {
+        $this->io->title("Step 1: Initialize app + remote for {$this->appName}");
+
+        $this->createDokkuApp();
+        $this->addGitRemote();
+
+        if (!$this->executeChanges) {
+            $this->io->success('Preview complete. Re-run with --force to create app and remote.');
+        } else {
+            $this->io->success('Init complete.');
+        }
+
+        return Command::SUCCESS;
+    }
+
+    private function scaffoldDeploymentFiles(): int
+    {
+        $this->io->title("Step 2: Scaffold deployment files for {$this->appName}");
+
+        $this->io->section('Preflight: app/remote sanity');
+        $appExists = $this->dokkuAppExists();
+
+        if ($appExists === true) {
+            $this->io->text("  Dokku app {$this->appName} exists; ensuring git remote is configured.");
+            $this->addGitRemote();
+        } elseif ($appExists === false) {
+            $this->io->warning("Dokku app {$this->appName} does not exist yet.");
+
+            if ($this->executeChanges) {
+                $this->io->text('  Creating app and git remote so scaffold can proceed safely.');
+                $this->createDokkuApp();
+                $this->addGitRemote();
+            } else {
+                $this->io->text('  (planned) Would create app + remote. Use --force to apply.');
+            }
+        } else {
+            $this->io->warning('Could not verify Dokku app existence (SSH/network issue?). Continuing with local scaffolding only.');
+        }
+
+        $this->createProcfile();
+        $this->createFpmConfig();
+        $this->createNginxConfig();
+        $this->createAppJson();
+
+        $this->io->section("Current config for {$this->appName}");
+        $this->runDokkuCmd("config:show {$this->appName}");
+
+        if (!$this->executeChanges) {
+            $this->io->success('Preview complete. Re-run with --force to write files.');
+        } else {
+            $this->io->success('Scaffold complete.');
         }
 
         return Command::SUCCESS;
