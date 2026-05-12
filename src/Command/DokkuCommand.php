@@ -11,7 +11,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Process\Process;
 
 #[AsCommand('dokku', 'Manage Dokku deployments')]
-final class DokkuCommand extends Command
+final class DokkuCommand
 {
     private SymfonyStyle $io;
     private bool $executeChanges = false;
@@ -22,7 +22,6 @@ final class DokkuCommand extends Command
         #[Autowire(param: 'kernel.project_dir')] private string $projectDir,
         ?string $name = null
     ) {
-        parent::__construct($name);
     }
 
     public function __invoke(
