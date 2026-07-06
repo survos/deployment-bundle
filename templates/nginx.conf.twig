@@ -48,6 +48,13 @@ location / {
 
     fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
     fastcgi_param DOCUMENT_ROOT $realpath_root;
+    # Without this, PHP never sees X-Forwarded-Proto even when the upstream proxy
+    # sends it (nginx populates $http_x_forwarded_proto from the incoming header
+    # regardless, but won't hand it to PHP-FPM without an explicit fastcgi_param) —
+    # so Symfony's trusted_proxies config has nothing to trust and falls back to
+    # http://, breaking every absolute URL (redirects, WebFinger/actor IRIs) even
+    # though the app is always served over https in production.
+    fastcgi_param HTTP_X_FORWARDED_PROTO $http_x_forwarded_proto;
 
     if ($request_uri ~* ".(ico|css|js|gif|jpe?g|png)$") {
                                             expires 3d;
