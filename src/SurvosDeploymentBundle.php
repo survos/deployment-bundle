@@ -1,45 +1,27 @@
 <?php
 
-/** generated from /home/tac/g/survos/survos/packages/maker-bundle/templates/skeleton/bundle/src/Bundle.tpl.php */
-
 namespace Survos\DeploymentBundle;
 
-use Survos\DeploymentBundle\Command\DokkuCommand;
-use Survos\DeploymentBundle\Twig\TwigExtension;
+use Survos\Kit\AbstractSurvosBundle;
+use Survos\Kit\SurvosKitBundle;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
-use Symfony\Component\DependencyInjection\ContainerBuilder;
-use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
-use Symfony\Component\DependencyInjection\Reference;
-use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
+use Symfony\Component\DependencyInjection\Kernel\RequiredBundle;
 
-class SurvosDeploymentBundle extends AbstractBundle
+// Symfony\Component\HttpKernel\Bundle\Bundle <-- Flex auto-registration marker (see Survos\Kit\AbstractSurvosBundle)
+#[RequiredBundle(SurvosKitBundle::class)]
+class SurvosDeploymentBundle extends AbstractSurvosBundle
 {
-    public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
-    {
-        // $builder->setParameter('survos_workflow.direction', $config['direction']);
-
-        // twig classes
-//        $builder
-//            ->autowire('survos.deployment_bundle', TwigExtension::class)
-//            ->setArgument('$config', $config)
-//            ->addTag('twig.extension');
-
-        $builder->autowire(DokkuCommand::class)
-            ->setAutoconfigured(true)
-            ->addTag('console.command');
-
-        /*
-        $definition->setArgument('$widthFactor', $config['widthFactor']);
-        $definition->setArgument('$height', $config['height']);
-        $definition->setArgument('$foregroundColor', $config['foregroundColor']);
-        */
-    }
+    // src/Command/ is auto-scanned by AbstractSurvosBundle (autowire + autoconfigure,
+    // no manual tagging) — this is what DokkuCommand and DokkuCommands both need.
+    // DokkuCommands went unregistered for a while under the old raw-AbstractBundle
+    // wiring (a class-level 'console.command' tag doesn't work for method-level
+    // #[AsCommand] — see git history); this convention removes that whole class of bug.
 
     public function configure(DefinitionConfigurator $definition): void
     {
         $definition->rootNode()
             ->children()
-            ->booleanNode('enabled')->defaultTrue()->end()
+                ->booleanNode('enabled')->defaultTrue()->end()
             ->end();
     }
 }

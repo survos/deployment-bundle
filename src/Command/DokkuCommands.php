@@ -7,6 +7,7 @@ namespace Survos\DeploymentBundle\Command;
 use Symfony\Component\Console\Attribute\Argument;
 use Symfony\Component\Console\Attribute\Ask;
 use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Attribute\AskChoice;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -42,6 +43,18 @@ final class DokkuCommands
         #[Option('App name (default: the dokku git remote, else the project directory)')] ?string $app = null,
         #[Option('Dokku host')] string $host = 'ssh.survos.com',
         #[Option('Apply fixes (otherwise preview only)')] bool $force = false,
+        // Each per-check confirm() below stays imperative on purpose: the checklist
+        // itself is computed at runtime from live SSH-diagnosed state (variable length,
+        // variable content), which #[Ask]/#[AskChoice] aren't a fit for — those
+        // attributes populate a FIXED, always-present parameter once before the command
+        // body runs. This trailing menu, unlike the checklist, is always exactly these
+        // four choices regardless of app state, so it's a clean fit for #[AskChoice].
+        // With -n/--no-interaction (or any non-interactive input), both this and every
+        // $io->confirm() below silently fall back to their declared default instead of
+        // prompting — so `dokku:init --force -n` runs fully unattended, accepting
+        // every fix and choosing "deploy".
+        #[AskChoice('What next?', ['deploy', 'config', 'logs', 'nothing'], default: 'deploy')]
+        ?string $next = null,
     ): int {
         $this->boot($io, $app, $host, $force);
         $io->title("Dokku · {$this->app} · {$this->host}");
@@ -68,11 +81,7 @@ final class DokkuCommands
             }
         }
 
-        // Dynamic, post-diagnosis menu (this is what #[AskChoice] wraps, but the
-        // choices depend on the freshly-computed state, so we ask imperatively here).
-        $next = $io->choice('What next?', ['deploy', 'config', 'logs', 'nothing'], 'deploy');
-
-        return match ($next) {
+        return match ($next ?? 'deploy') {
             'deploy' => $this->deploy($io, $this->app, $this->host, true),
             'config' => $this->config($io, null, $this->app, $this->host, $this->force),
             'logs' => $this->logs($io, $this->app, $this->host),
@@ -179,6 +188,7 @@ final class DokkuCommands
         $hasSecret = '' !== $this->configGet('APP_SECRET');
         $hasDb = '' !== $this->configGet('DATABASE_URL');
         $scaffolded = is_file($this->projectDir.'/Procfile') && is_file($this->projectDir.'/app.json');
+        $hasStorage = $this->hasStorageMount();
 
         return [
             $this->check('Dokku app exists', $appExists, 'apps:create', 'Create the app?', fn () => $this->ssh("apps:create {$this->app}", allowFail: true, mutates: true)),
@@ -186,7 +196,12 @@ final class DokkuCommands
             $this->check('Deploy files (Procfile, app.json)', $scaffolded ?: false, 'scaffold', 'Scaffold the deploy files?', fn () => $this->scaffold()),
             $this->check('APP_ENV=prod', $envProd, 'config:set APP_ENV=prod', 'Set APP_ENV=prod?', fn () => $this->ssh("config:set {$this->app} APP_ENV=prod", mutates: true)),
             $this->check('APP_SECRET set', $hasSecret, 'config:set APP_SECRET', 'Generate and set an APP_SECRET?', fn () => $this->ssh("config:set {$this->app} APP_SECRET=".bin2hex(random_bytes(16)), mutates: true)),
+            // NOTE: this fix provisions a dedicated per-app dokku-postgres addon. Some
+            // survos-sites apps instead share one Postgres instance across apps (see
+            // zm) — if that's your convention, decline this fix and set DATABASE_URL
+            // yourself with `dokku:config` instead.
             $this->check('DATABASE_URL (postgres linked)', $hasDb, 'postgres:create + postgres:link', 'Provision + link a postgres DB?', fn () => $this->provisionPostgres()),
+            $this->check('Persistent storage mounted', $hasStorage, 'storage:ensure-directory + storage:mount', 'Mount persistent storage at /app/var?', fn () => $this->provisionStorage()),
         ];
     }
 
@@ -220,6 +235,34 @@ final class DokkuCommands
         $svc = $this->app.'-db';
         $this->ssh("postgres:create {$svc}", allowFail: true, mutates: true);
         $this->ssh("postgres:link {$svc} {$this->app}", allowFail: true, mutates: true);
+    }
+
+    /** True if the app has at least one storage mount (any mount — this doesn't
+     *  verify /app/var specifically, since some apps mount elsewhere or not at all
+     *  by design). Empty/unreachable both read as "no mount" (false, not null).
+     *  `storage:list` always prints a "-----> app volume bind-mounts:" header line
+     *  even with zero mounts, so checking for non-empty output is a false positive —
+     *  actual mounts appear as additional lines after that header. */
+    private function hasStorageMount(): bool
+    {
+        $p = Process::fromShellCommandline(\sprintf('ssh dokku@%s storage:list %s 2>/dev/null', escapeshellarg($this->host), escapeshellarg($this->app)));
+        $p->setTimeout(30);
+        $p->run();
+
+        if (!$p->isSuccessful()) {
+            return false;
+        }
+
+        $lines = array_filter(array_map('trim', explode("\n", trim($p->getOutput()))), static fn (string $l): bool => '' !== $l);
+
+        return \count($lines) > 1;
+    }
+
+    private function provisionStorage(): void
+    {
+        $hostPath = "/var/lib/dokku/data/storage/{$this->app}";
+        $this->ssh("storage:ensure-directory {$this->app}", allowFail: true, mutates: true);
+        $this->ssh("storage:mount {$this->app} {$hostPath}:/app/var", allowFail: true, mutates: true);
     }
 
     private function scaffold(): void

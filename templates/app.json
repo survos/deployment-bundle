@@ -18,8 +18,16 @@
             "value": "secret"
         },
         "WEB_CONCURRENCY": {
-            "description": "The number of processes to run.",
-            "generator": "echo 5"
+            "description": "The number of web processes to run.",
+            "value": "5"
+        },
+        "APP_ENV": {
+            "description": "Symfony environment.",
+            "value": "prod"
+        },
+        "APP_DEBUG": {
+            "description": "Symfony debug flag.",
+            "value": "0"
         }
     },
     "image": "gliderlabs/herokuish",
