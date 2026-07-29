@@ -204,8 +204,10 @@ final class DokkuCommand
 
     private function handleConfig(?string $param): int
     {
-        // Keep local deployment metadata in sync when working with config
-        $this->createAppJson();
+        // Make sure app.json exists (first-time convenience) without clobbering
+        // an already-scaffolded one -- config/storage actions aren't the place
+        // to silently overwrite hand-edited predeploy scripts, addons, etc.
+        $this->createAppJson(skipIfExists: true);
 
         if (!$param) {
             // Show all config
@@ -385,8 +387,14 @@ END;
         $this->syncFile('nginx.conf', $path, $contents);
     }
 
-    private function createAppJson(): void
+    private function createAppJson(bool $skipIfExists = false): void
     {
+        $path = $this->projectDir . '/app.json';
+
+        if ($skipIfExists && file_exists($path)) {
+            return;
+        }
+
         $composerPath = $this->projectDir . '/composer.json';
         $templatePath = __DIR__ . '/../../templates/app.json';
 
@@ -429,7 +437,6 @@ END;
 
         $this->io->text($contents);
 
-        $path = $this->projectDir . '/app.json';
         $this->syncFile('app.json', $path, $contents);
     }
 
