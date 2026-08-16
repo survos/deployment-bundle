@@ -116,18 +116,42 @@ throwaway repo is simpler and keeps the monorepo history untouched.)
    "WEB_CONCURRENCY": { "description": "workers", "value": "2" }
    ```
 
-3. **Trim `app.json` for minimal apps.** The default template declares
-   `dokku-postgres`/`dokku-redis` addons and a predeploy that runs
-   `secrets:decrypt-to-local` + `doctrine:migrations:migrate`. If your app
-   doesn't use a DB or the Symfony Vault, those fail or waste time — strip the
-   `addons` and reduce `predeploy` (the AI demo only needs
-   `bin/console asset-map:compile`).
+3. **Trim `app.json` for minimal apps.** The template's `predeploy` runs
+   `importmap:install`, `asset-map:compile` and `doctrine:migrations:migrate`.
+   An app with no database should drop the migrations step (the AI demo only
+   needs `bin/console asset-map:compile`).
 
-4. **Secrets:** set API keys via `dokku config:set` (the `bin/deploy` above pulls
-   them from `.env.local`, which stays gitignored and is never pushed) **or** via
-   the Symfony Vault (then set `SYMFONY_DECRYPTION_SECRET` as a Dokku config var
-   and keep `secrets:decrypt-to-local` in `predeploy`). Set config **before** the
-   push so `APP_ENV=prod` is present at build time (asset compilation, cache warmup).
+   The template no longer declares `dokku-postgres`/`dokku-redis` addons or
+   `secrets:decrypt-to-local`. The convention is the **system** Postgres and
+   Redis reached via `DATABASE_URL`/`REDIS_URL` in Dokku config — the addon
+   declarations were inert (Dokku does not auto-provision from `app.json`) and
+   implied a wiring that did not exist. Add an addon back only if you genuinely
+   want a Dokku-managed service for that app.
+
+4. **Secrets: use `dokku config:set`.** The `bin/deploy` above pulls them from
+   `.env.local`, which stays gitignored and is never pushed. Set config **before**
+   the push so `APP_ENV=prod` is present at build time (asset compilation, cache
+   warmup).
+
+   **The Symfony Vault is deprecated for our apps — don't add it to new ones.**
+   It was worth trying and it didn't pay off:
+
+   - **It hides config from `dokku config:show`.** That is the tool everyone uses
+     to inspect production, so a vaulted `DATABASE_URL` makes an app look
+     misconfigured when it is fine. This has cost real debugging time.
+   - **The security floor is unchanged.** `SYMFONY_DECRYPTION_SECRET` has to live
+     in Dokku config anyway, so anyone who can read Dokku config can decrypt the
+     vault. You end up maintaining two mechanisms with the weaker one's guarantees.
+   - **It adds a boot-time dependency.** `secrets:decrypt-to-local` must succeed in
+     `predeploy` before the app can start.
+   - **Sharp edge:** `secrets:decrypt-to-local` writes `.env.prod.local`, *not*
+     `.env.local` — a reliable source of confusion.
+
+   Apps still on the vault (`lingua`, `mediary`, `ssai`) should migrate: read the
+   value, `dokku config:set` it (a real env var takes precedence over the vault, so
+   this is safe to do first and verify), then remove the vault entry. Several other
+   apps carry vestigial `config/secrets/prod/` entries that are already overridden
+   by Dokku config and can simply be deleted.
 
 5. **Consuming a fork live.** If the app depends on an unreleased fork (e.g.
    `symfony/ai:dev-tac`), the app's `composer.json` must carry the VCS

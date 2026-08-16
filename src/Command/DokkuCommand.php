@@ -488,9 +488,6 @@ END;
             escapeshellarg($this->dokkuHost),
             $dokkuArgs
         );
-        // dokku config:set  SYMFONY_DECRYPTION_SECRET=$(grep SYMFONY_DECRYPTION_SECRET config/secrets/prod/prod.decrypt.private.php | cut -d= -f2)
-        // bin/console secrets:set APP_SECRET --env=prod --random
-
         $this->runCmd($cmd, $allowFailure, $mutates);
     }
 
