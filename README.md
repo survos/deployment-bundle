@@ -20,6 +20,11 @@ bin/console dokku <action> [param] [--app=NAME] [--host=HOST] [--force]
 | `bootstrap` (default) | `init` + `scaffold` in one go |
 | `init` | Create the Dokku app + add the `dokku` git remote |
 | `scaffold` | Create/update `Procfile`, `nginx.conf`, `fpm_custom.conf`, `app.json` |
+
+> **Moving to FrankenPHP?** `scaffold` still writes the buildpack files (nginx + php-fpm).
+> To put an app on FrankenPHP/Caddy instead — one long-lived process, no per-request PHP
+> boot — follow [docs/frankenphp-migration.md](docs/frankenphp-migration.md). Done on
+> packages and zm; the scaffolder has not been taught the FrankenPHP shape yet.
 | `config [KEY=value]` | Show all config, or set one var |
 | `storage [/host:/container]` | List or add a persistent mount |
 | `deploy` | `git push dokku main` |
