@@ -215,6 +215,59 @@ fix is `composer update "survos/*" -W`, then re-run `php ~/sites/mono/link .` to
 symlinks. **Expect this on any app that has not deployed in a while**, and budget for it: it
 is a real dependency bump, not a formality.
 
+## Before you deploy: two things that live only on the server
+
+Neither is in any repo, so nothing in the local workflow can catch them. Both cost zm a
+failed deploy.
+
+### 1. Custom `nginx.conf.d` snippets pin the old upstream port
+
+Dokku names the upstream `<app>-<port>`. Under herokuish that is `zm-5000`; under the
+dockerfile builder with `EXPOSE 80` it becomes `zm-80`. A hand-placed per-app snippet that
+hardcodes the old name breaks `nginx -t`, and dokku rejects the push **after** the new
+containers have already passed their healthchecks and swapped in:
+
+```
+[emerg] host not found in upstream "zm-5000" in /home/dokku/zm/nginx.conf.d/search-ratelimit.conf:14
+nginx: configuration file /etc/nginx/nginx.conf test failed
+```
+
+The app keeps serving — nginx refuses the bad config and holds its previous one — but the
+deploy is stuck half-applied, and *every* subsequent push fails the same way until it is
+fixed. Check first, before pushing:
+
+```bash
+ssh dokku_root "ls /home/dokku/<app>/nginx.conf.d/ 2>/dev/null && grep -rn '<app>-5000' /home/dokku/<app>/nginx.conf.d/"
+```
+
+Fix by pointing them at `<app>-80` (keep a `.bak`), then `nginx -t`.
+
+### 2. A host-based redirect will fail the deploy healthcheck
+
+Dokku probes the new container using the app's **first** vhost from `dokku domains:report`.
+If the app 301s that host somewhere else, the probe follows the redirect off the box, gets
+answered by the public domain — i.e. by the *old* release still behind the proxy — and
+reports its status code. zm redirects its legacy `zm.survos.com` to `museado.org`, so the
+healthcheck was answered by a release that has no `/health` route:
+
+```
+Failure in name='App boots and routes': unexpected status code: 404
+```
+
+The tell is a healthcheck body that could not have come from the container — in zm's case a
+Symfony 404 page with a **Cloudflare challenge script** embedded in it. Confirm by running
+the new image on the host with the app's real env and probing it by container IP with each
+vhost as the `Host` header:
+
+```bash
+ssh dokku_root "eval docker run -d --name probe \$(dokku config:export --format=docker-args <app>) dokku/<app>:latest
+IP=\$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' probe)
+for h in \$(dokku domains:report <app> --domains-app-vhosts); do curl -s -o /dev/null -H \"Host: \$h\" -w \"\$h %{http_code} %{redirect_url}\n\" http://\$IP:80/health; done"
+```
+
+Fix in the app: exempt the healthcheck path from the redirect. A healthcheck that follows a
+301 has stopped being a check of the machine being probed.
+
 ## Then deploy
 
 ```bash
