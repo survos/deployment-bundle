@@ -189,11 +189,25 @@ final class DokkuCommands
         $hasDb = '' !== $this->configGet('DATABASE_URL');
         $scaffolded = is_file($this->projectDir.'/Procfile') && is_file($this->projectDir.'/app.json');
         $hasStorage = $this->hasStorageMount();
+        $onFrankenphp = $this->usesFrankenphp();
+        $noGenerators = !$this->appJsonHasEnvGenerator();
 
         return [
             $this->check('Dokku app exists', $appExists, 'apps:create', 'Create the app?', fn () => $this->ssh("apps:create {$this->app}", allowFail: true, mutates: true)),
             $this->check('git remote "dokku"', $hasRemote, "dokku@{$this->host}:{$this->app}", 'Add the dokku git remote?', fn () => $this->run("git remote add dokku dokku@{$this->host}:{$this->app}", mutates: true)),
             $this->check('Deploy files (Procfile, app.json)', $scaffolded ?: false, 'scaffold', 'Scaffold the deploy files?', fn () => $this->scaffold()),
+            // FrankenPHP is the default builder for Survos apps, including throwaway ones.
+            // No auto-fix: this is a five-file migration with an app-specific extension
+            // audit, and the local rehearsal build is the point of it. See the
+            // frankenphp-migration skill in mono, and bu/deployment-bundle/docs/.
+            $this->check('Builder: FrankenPHP (not the PHP buildpack)', $onFrankenphp, 'see frankenphp-migration skill — Dockerfile + Caddyfile, drop nginx.conf/fpm_custom.conf', 'no auto-fix (multi-file migration)', null),
+            // dokku 0.38.27 stopped running app.json env `generator` entries. The deploy
+            // does not warn -- it aborts at release with "required env var X has no value,
+            // no default, and no TTY for prompt", after composer and asset build have
+            // already succeeded, so it reads like a runtime fault rather than a manifest
+            // one. 0.38.16 ran generators, so apps that deployed fine for years break the
+            // first time they touch a newer host.
+            $this->check('app.json env has no `generator` entries', $noGenerators, 'replace "generator" with "value" — dokku >= 0.38.17 ignores generators', 'no auto-fix (edit app.json)', null),
             $this->check('APP_ENV=prod', $envProd, 'config:set APP_ENV=prod', 'Set APP_ENV=prod?', fn () => $this->ssh("config:set {$this->app} APP_ENV=prod", mutates: true)),
             $this->check('APP_SECRET set', $hasSecret, 'config:set APP_SECRET', 'Generate and set an APP_SECRET?', fn () => $this->ssh("config:set {$this->app} APP_SECRET=".bin2hex(random_bytes(16)), mutates: true)),
             // NOTE: this fix provisions a dedicated per-app dokku-postgres addon. Some
@@ -267,10 +281,55 @@ final class DokkuCommands
 
     private function scaffold(): void
     {
-        // Reuse the legacy scaffolders; kept in the original DokkuCommand. For brevity
-        // this delegates to a minimal Procfile/app.json; richer templates live in
-        // ../templates and can be wired in here.
-        $this->io->note('Run `bin/console dokku scaffold --force` for the full templated scaffold (Procfile, nginx.conf, fpm, app.json).');
+        // NOTE: the legacy `dokku scaffold` writes BUILDPACK files (nginx.conf,
+        // fpm_custom.conf, a herokuish app.json). That is no longer the target shape --
+        // FrankenPHP is the default for Survos apps, throwaway ones included. Pointing
+        // people at it would scaffold an app straight into the migration backlog.
+        $this->io->note([
+            'FrankenPHP is the default builder. Do not scaffold buildpack files.',
+            'Follow the frankenphp-migration skill (mono/.claude/skills/), or copy the five',
+            'files from a working reference: ~/sites/packages (smallest) or ~/sites/zm.',
+            'Files: Dockerfile, Caddyfile, docker/php.ini, Procfile, .dockerignore.',
+            'The local `docker build` rehearsal is not optional -- it is the only step that',
+            'resolves vendor/survos/* to the RELEASED versions in composer.lock instead of',
+            'the mono/link symlinks, so it is where config written against mono HEAD fails.',
+        ]);
+    }
+
+    /**
+     * Buildpack apps are identifiable from the repo alone: a Dockerfile mentioning
+     * frankenphp means dokku picks the dockerfile builder; nginx.conf or a herokuish
+     * app.json means it does not.
+     */
+    private function usesFrankenphp(): bool
+    {
+        $dockerfile = $this->projectDir.'/Dockerfile';
+        if (is_file($dockerfile) && false !== stripos((string) file_get_contents($dockerfile), 'frankenphp')) {
+            return true;
+        }
+
+        return !is_file($this->projectDir.'/nginx.conf')
+            && !is_file($this->projectDir.'/fpm_custom.conf');
+    }
+
+    /** @see the `app.json env has no generator entries` check for why this matters. */
+    private function appJsonHasEnvGenerator(): bool
+    {
+        $appJson = $this->projectDir.'/app.json';
+        if (!is_file($appJson)) {
+            return false;
+        }
+        $data = json_decode((string) file_get_contents($appJson), true);
+        if (!is_array($data)) {
+            return false;
+        }
+        foreach ($data['env'] ?? [] as $spec) {
+            if (is_array($spec) && isset($spec['generator'])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // --- low-level helpers (shared shape with the legacy command) ------------
