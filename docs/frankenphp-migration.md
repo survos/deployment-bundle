@@ -292,8 +292,38 @@ first green deploy:
 
 Not enabled by this migration. FrankenPHP's worker mode keeps the kernel booted between
 requests, which is the next order-of-magnitude win and also the point at which any service
-holding per-request state becomes a cross-request leak. Bundles have to opt in deliberately:
-`survos/schema-org-bundle`, for instance, ships a `SchemaOrgResetListener` that empties its
-request graph on every main request precisely so one page's nodes cannot leak into the next
-one's. Treat worker mode as its own migration, per app, after the plain FrankenPHP deploy
-has been stable.
+holding per-request state becomes a cross-request leak. Treat it as its own migration, per
+app, after the plain FrankenPHP deploy has been stable. zm went first — see
+`zm/docs/frankenphp-worker.md` and survos-sites/zm#22 for the full runbook and the audit that
+had to precede it. The short version:
+
+**There is no package to install.** `symfony/runtime` >= 7.4 ships `FrankenPhpWorkerRunner` and
+picks it automatically, because FrankenPHP sets `FRANKENPHP_WORKER=1` in the worker's own
+environment. Do *not* add `runtime/frankenphp-symfony`: its 1.0.0 still caps at
+`symfony/runtime ^7.0` and will not install alongside Symfony 8. The whole change is a `worker`
+block in the `Caddyfile`.
+
+**Symfony resets more than you'd expect.** `Kernel::boot()` calls `services_resetter` whenever
+it is re-entered with an empty request stack, so everything tagged `kernel.reset` is cleared
+between requests — Doctrine included (EMs cleared, *closed* EMs recreated, so one bad request no
+longer poisons the worker). `ResetInterface` is autoconfigured onto that tag.
+
+**Two things it cannot reset**, and these are the whole audit:
+
+* A function `static`. Nothing reaches it. Every `static $x = []` in a method body is
+  process-lifetime state. Convert them to instance properties.
+* A shared service holding request state that isn't tagged. Implement `ResetInterface`, or —
+  when `reset()` already means something else on that class — tag a distinct method:
+  `#[Autoconfigure(tags: [['name' => 'kernel.reset', 'method' => 'resetRequestState']])]`.
+
+**Look for correctness bugs before memory ones.** On zm the worst find was not a leak at all:
+`FolioService::$requestContentLocale` is only resolved by its listener when it is currently
+`null`, so the first localized request pinned that locale for the life of the process and every
+later request demanded a `<code>.<locale>.folio` build that mostly does not exist — a hard 500
+on most folios. Cached "current X" holders (locale, tenant, dataset, folio) are where to look
+first. Second place: any cache keyed by `spl_object_id($connection)`, which is stable even as
+`FolioConnectionWrapper` is re-pointed at a different SQLite file.
+
+Some bundles already opted in: `survos/schema-org-bundle` ships a `SchemaOrgResetListener` that
+empties its request graph on every main request, precisely so one page's nodes cannot leak into
+the next one's.
