@@ -119,12 +119,39 @@ shadows the empty directory at runtime.
 :{$PORT:80} {
 	root * /app/public
 	request_body { max_size 128MB }
-	php_server
+
+	handle /favicon.ico {
+		@missing not file
+		respond @missing 204
+		file_server
+	}
+
+	handle {
+		php_server
+	}
 }
 ```
 
 That is genuinely the whole thing; `php_server` covers what the old `nginx.conf`'s
 `try_files … /index.php?$query_string` block did.
+
+**The `/favicon.ico` handle.** Browsers request `/favicon.ico` unprompted on the first page
+view of every session, whether or not the page links one. Left to fall through to
+`php_server`, Symfony answers it with a `NotFoundHttpException` — never a real error, and
+reliably the noisiest single line in the production log. `handle` blocks are mutually
+exclusive and evaluated in the order written, so the block above terminates the request:
+`public/favicon.ico` is served when it exists, 204 otherwise, and PHP is never booted either
+way. This is why `php_server` has to move inside its own `handle` — a bare `php_server`
+outside one is a separate route that still matches.
+
+The buildpack equivalent, for apps still on `nginx.conf`:
+
+```
+location = /favicon.ico { access_log off; log_not_found off; try_files $uri =204; }
+```
+
+Note the `try_files`. `access_log off; log_not_found off;` alone only quiets nginx's own
+logs — the request still reaches PHP and Symfony still logs the exception.
 
 **No `encode` directive.** dokku's own nginx vhost sits in front of the container, and
 Cloudflare in front of that, and Cloudflare compresses to the browser regardless of what the
