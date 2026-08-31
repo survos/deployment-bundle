@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deploy Symfony to Dokku"
+  short_description: "Safely publish PostgreSQL-backed Symfony apps to fsn1 Dokku"
+  default_prompt: "Deploy this Symfony application to fsn1 Dokku using the guarded PostgreSQL workflow."
