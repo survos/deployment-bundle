@@ -15,7 +15,7 @@ final class DokkuCommand
 {
     private SymfonyStyle $io;
     private bool $executeChanges = false;
-    private string $dokkuHost = 'ssh.survos.com';
+    private string $dokkuHost = 'fsn1';
     private ?string $appName = null;
 
     public function __construct(
@@ -31,7 +31,7 @@ final class DokkuCommand
         #[Argument('Action parameter (e.g. mount path for storage, KEY=value for config)')] ?string $param = null,
         #[Option("App name (auto-detected from git remote or directory)")] ?string $app = null,
         #[Option("Execute mutating commands and file writes")] bool $force = false,
-        #[Option("Dokku server host")] string $host = 'ssh.survos.com'
+        #[Option("Dokku server host")] string $host = 'fsn1'
     ): int {
         $this->io = $io;
         $this->executeChanges = $force;
@@ -81,7 +81,7 @@ final class DokkuCommand
             '',
             'Options:',
             '  --app=NAME              Override app name',
-            '  --host=HOST             Dokku server (default: ssh.survos.com)',
+            '  --host=HOST             Dokku server (default: fsn1)',
             '  --force                 Execute mutating commands and file writes',
             '',
             'Examples:',

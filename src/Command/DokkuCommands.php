@@ -27,7 +27,7 @@ use Symfony\Component\Process\Process;
 final class DokkuCommands
 {
     private SymfonyStyle $io;
-    private string $host = 'ssh.survos.com';
+    private string $host = 'fsn1';
     private bool $force = false;
     private string $app = '';
 
@@ -41,7 +41,7 @@ final class DokkuCommands
     public function init(
         SymfonyStyle $io,
         #[Option('App name (default: the dokku git remote, else the project directory)')] ?string $app = null,
-        #[Option('Dokku host')] string $host = 'ssh.survos.com',
+        #[Option('Dokku host')] string $host = 'fsn1',
         #[Option('Apply fixes (otherwise preview only)')] bool $force = false,
         // Each per-check confirm() below stays imperative on purpose: the checklist
         // itself is computed at runtime from live SSH-diagnosed state (variable length,
@@ -93,7 +93,7 @@ final class DokkuCommands
     public function deploy(
         SymfonyStyle $io,
         #[Option] ?string $app = null,
-        #[Option] string $host = 'ssh.survos.com',
+        #[Option] string $host = 'fsn1',
         #[Option('Actually push (otherwise preview)')] bool $force = false,
     ): int {
         $this->boot($io, $app, $host, $force);
@@ -126,7 +126,7 @@ final class DokkuCommands
         #[Ask('Env var to set as KEY=value (blank to list all)', default: '')]
         ?string $keyValue = null,
         #[Option] ?string $app = null,
-        #[Option] string $host = 'ssh.survos.com',
+        #[Option] string $host = 'fsn1',
         #[Option] bool $force = false,
     ): int {
         $this->boot($io, $app, $host, $force);
@@ -150,7 +150,7 @@ final class DokkuCommands
     }
 
     #[AsCommand('dokku:logs', 'Tail the last 100 lines of app logs')]
-    public function logs(SymfonyStyle $io, #[Option] ?string $app = null, #[Option] string $host = 'ssh.survos.com'): int
+    public function logs(SymfonyStyle $io, #[Option] ?string $app = null, #[Option] string $host = 'fsn1'): int
     {
         $this->boot($io, $app, $host, false);
         $this->ssh("logs {$this->app} --num 100", mutates: false);
@@ -160,7 +160,7 @@ final class DokkuCommands
     }
 
     #[AsCommand('dokku:destroy', 'Delete the Dokku app (asks to confirm)')]
-    public function destroy(SymfonyStyle $io, #[Option] ?string $app = null, #[Option] string $host = 'ssh.survos.com'): int
+    public function destroy(SymfonyStyle $io, #[Option] ?string $app = null, #[Option] string $host = 'fsn1'): int
     {
         $this->boot($io, $app, $host, true);
         if (!$io->confirm("Destroy app '{$this->app}'? This cannot be undone.", false)) {

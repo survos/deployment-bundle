@@ -32,9 +32,9 @@ bin/console dokku <action> [param] [--app=NAME] [--host=HOST] [--force]
 
 - **Preview by default.** Without `--force`, mutating steps are only *listed*.
   Add `--force` to actually create the app, write files, and set config.
-- `--host` defaults to `ssh.survos.com`; the app name is auto-detected from the
+- `--host` defaults to the `fsn1` SSH alias; the app name is auto-detected from the
   `dokku` git remote, else the directory name. Pass `--app=ai-demo` to override.
-- Requires SSH access as `dokku@<host>` (test: `ssh dokku@ssh.survos.com apps:list`).
+- Requires SSH access as `dokku@<host>` (test: `ssh dokku@fsn1 apps:list`).
 
 ### Standalone app — happy path
 
@@ -67,7 +67,7 @@ Drop a `bin/deploy` script in the app (this is exactly what we use for the
 # Deploy a monorepo-subdir Symfony app to Dokku via a throwaway git repo.
 set -euo pipefail
 APP="${DOKKU_APP:-ai-demo}"
-DOKKU_HOST="${DOKKU_HOST:-ssh.survos.com}"
+DOKKU_HOST="${DOKKU_HOST:-fsn1}"
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"; ROOT="$(pwd)"
 
 # 1) Config/secrets from .env.local (values never printed; .env.local stays gitignored)
