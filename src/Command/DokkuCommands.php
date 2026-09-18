@@ -123,7 +123,6 @@ final class DokkuCommands
     public function config(
         SymfonyStyle $io,
         #[Argument('KEY=value to set; omit to list all')]
-        #[Ask('Env var to set as KEY=value (blank to list all)', default: '')]
         ?string $keyValue = null,
         #[Option] ?string $app = null,
         #[Option] string $host = 'fsn1',
