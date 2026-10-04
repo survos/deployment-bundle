@@ -87,8 +87,9 @@ OOMs" into a mystery — and Flex recipes have a habit of re-adding a plain `cac
 
 - `cache:clear` (which warms up) **must** precede `asset-map:compile`.
   `survos/js-twig-bundle`'s `FosRoutingCacheWarmer` is what writes
-  `var/js_twig_bundle/generated/fos_routes.js`, and `asset-map:compile` fails without it
-  already on disk. This gap recurs on every upgrade.
+  `var/js_twig_bundle/generated/routes.json`, and `asset-map:compile` fails without it
+  already on disk. Do not restore old generated-JS importmap entries or FOS dump
+  commands; see the [migration guide](../../js-twig-bundle/docs/routing-migration.md).
 - `assets:install public` is **not optional**, and is the single most likely thing to be
   left out. Composer's auto-scripts normally run it, but the Dockerfile uses
   `composer install --no-scripts`, and `public/bundles/` is gitignored so it is absent from
